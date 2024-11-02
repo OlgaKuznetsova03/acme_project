@@ -1,42 +1,60 @@
-# birthday/views.py 
-from django.shortcuts import render, get_object_or_404, redirect
-from django.core.paginator import Paginator
-from django.views.generic import ListView, CreateView, UpdateView, DeleteView
+# birthday/views.py
+from django.views.generic import (
+    CreateView, DeleteView, DetailView, ListView, UpdateView
+)
 from django.urls import reverse_lazy
+from django.contrib.auth.decorators import login_required
+from django.http import HttpResponse, request
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 
 from .forms import BirthdayForm
-# Импортируем из utils.py функцию для подсчёта дней.
-from .utils import calculate_birthday_countdown
 from .models import Birthday
+from .utils import calculate_birthday_countdown
 
+@login_required
+def simple_view(request):
+    return HttpResponse('Страница для залогиненных пользователей!')
 
-class BirthdayDeleteView(DeleteView):
-    model = Birthday
-    template_name = 'birthday/birthday.html'
-    success_url = reverse_lazy('birthday:list')
+class OnlyAuthorMixin(UserPassesTestMixin):
 
+    def test_func(self):
+        object = self.get_object()
+        return object.author == self.request.user
 
-class BirthdayMixin:
-    model = Birthday
-    form_class = BirthdayForm
-    template_name = 'birthday/birthday.html'
-    success_url = reverse_lazy('birthday:list')
-
-
-# Добавляем миксин первым по списку родительских классов.
-class BirthdayCreateView(BirthdayMixin, CreateView):
-    # Не нужно описывать атрибуты: все они унаследованы от BirthdayMixin.
-    pass
-
-
-class BirthdayUpdateView(BirthdayMixin, UpdateView):
-    # И здесь все атрибуты наследуются от BirthdayMixin.
-    pass  
 
 class BirthdayListView(ListView):
-    # Указываем модель, с которой работает CBV...
     model = Birthday
-    # ...сортировку, которая будет применена при выводе списка объектов:
     ordering = 'id'
-    # ...и даже настройки пагинации:
-    paginate_by = 10 
+    paginate_by = 10
+
+
+class BirthdayCreateView(LoginRequiredMixin, CreateView):
+    model = Birthday
+    form_class = BirthdayForm
+
+    def form_valid(self, form):
+        # Присвоить полю author объект пользователя из запроса.
+        form.instance.author = self.request.user
+        # Продолжить валидацию, описанную в форме.
+        return super().form_valid(form) 
+
+
+class BirthdayUpdateView(LoginRequiredMixin, OnlyAuthorMixin, UpdateView):
+    model = Birthday
+    form_class = BirthdayForm
+
+
+class BirthdayDeleteView(LoginRequiredMixin, OnlyAuthorMixin, DeleteView):
+    model = Birthday
+    success_url = reverse_lazy('birthday:list')
+
+
+class BirthdayDetailView(DetailView):
+    model = Birthday
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['birthday_countdown'] = calculate_birthday_countdown(
+            self.object.birthday
+        )
+        return context
